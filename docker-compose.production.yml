@@ -1,0 +1,268 @@
+version: '3.8'
+
+services:
+  # Load Balancer (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: antrai-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.production.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app1
+      - app2
+    restart: unless-stopped
+    networks:
+      - antrai-network
+
+  # Application Server 1
+  app1:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: antrai-app-1
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - INSTANCE_ID=app-1
+      - DATABASE_URL=postgresql://antrai_user:${POSTGRES_PASSWORD}@postgres:5432/antrai_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+      - CLOUDINARY_URL=${CLOUDINARY_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+
+  # Application Server 2
+  app2:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: antrai-app-2
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - INSTANCE_ID=app-2
+      - DATABASE_URL=postgresql://antrai_user:${POSTGRES_PASSWORD}@postgres:5432/antrai_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=7d
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+      - CLOUDINARY_URL=${CLOUDINARY_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+
+  # PostgreSQL Database (Optimized for production)
+  postgres:
+    image: postgres:15-alpine
+    container_name: antrai-postgres
+    environment:
+      - POSTGRES_DB=antrai_db
+      - POSTGRES_USER=antrai_user
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U antrai_user -d antrai_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'
+          memory: 16G
+        reservations:
+          cpus: '4.0'
+          memory: 8G
+
+  # Redis (Optimized for production)
+  redis:
+    image: redis:7-alpine
+    container_name: antrai-redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --maxmemory 4gb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+
+  # Background Job Processor 1
+  worker1:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: antrai-worker-1
+    command: ["node", "dist/jobs/worker.js"]
+    environment:
+      - NODE_ENV=production
+      - WORKER_ID=worker-1
+      - DATABASE_URL=postgresql://antrai_user:${POSTGRES_PASSWORD}@postgres:5432/antrai_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  # Background Job Processor 2
+  worker2:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: antrai-worker-2
+    command: ["node", "dist/jobs/worker.js"]
+    environment:
+      - NODE_ENV=production
+      - WORKER_ID=worker-2
+      - DATABASE_URL=postgresql://antrai_user:${POSTGRES_PASSWORD}@postgres:5432/antrai_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - WEATHER_API_KEY=${WEATHER_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - antrai-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  # Monitoring (Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: antrai-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - antrai-network
+
+  # Monitoring (Grafana)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: antrai-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    restart: unless-stopped
+    networks:
+      - antrai-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  antrai-network:
+    driver: bridge
+
+
+
+
+
+
+
