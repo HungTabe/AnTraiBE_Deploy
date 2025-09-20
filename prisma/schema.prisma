@@ -1,0 +1,572 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ================================
+// USER MANAGEMENT MODELS
+// ================================
+
+enum UserRole {
+  FARMER
+  EXPERT
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  firstName String
+  lastName  String
+  phone     String?
+  avatar    String?
+  role      UserRole  @default(FARMER)
+  status    UserStatus @default(ACTIVE)
+  
+  // Farm information
+  farm      Farm?
+  
+  // Relations
+  poultry   Poultry[]
+  careRecords CareRecord[]
+  consultations Consultation[] @relation("FarmerConsultations")
+  expertConsultations Consultation[] @relation("ExpertConsultations")
+  chatHistory ChatHistory[]
+  expertChatHistory ChatHistory[] @relation("ExpertChats")
+  notifications Notification[]
+  reports        Report[]       @relation("ReportOwner")
+  statistics     Statistics?    @relation("UserStatistics")
+  expertProfile  Expert?        @relation("ExpertProfile")
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Farm {
+  id          Int      @id @default(autoincrement())
+  name        String
+  address     String
+  city        String
+  province    String
+  postalCode  String?
+  latitude    Float?
+  longitude   Float?
+  description String?
+  image       String?
+  
+  // Owner
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  pens        Pen[]
+  weatherData WeatherData[]
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("farms")
+}
+
+// ================================
+// POULTRY MANAGEMENT MODELS
+// ================================
+
+enum PoultryType {
+  CHICKEN
+  DUCK
+  GOOSE
+  TURKEY
+  QUAIL
+  OTHER
+}
+
+enum HealthStatus {
+  HEALTHY
+  SICK
+  RECOVERING
+  QUARANTINE
+  DECEASED
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  UNKNOWN
+}
+
+model Breed {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  type        PoultryType
+  description String?
+  image       String?
+  
+  // Characteristics
+  averageWeight    Float?
+  maturityAge      Int?    // in weeks
+  eggProduction    Int?    // eggs per year
+  diseaseResistance String?
+  
+  // Relations
+  poultry          Poultry[]
+  vaccinationSchedules VaccinationSchedule[]
+  
+  // Timestamps
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("breeds")
+}
+
+model Pen {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  capacity    Int      @default(0)
+  currentCount Int     @default(0)
+  temperature Float?
+  humidity    Float?
+  image       String?
+  
+  // Farm location
+  farmId      Int
+  farm        Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  poultry     Poultry[]
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("pens")
+}
+
+model Poultry {
+  id            Int          @id @default(autoincrement())
+  name          String
+  tagNumber     String?      @unique // Ear tag or ID number
+  type          PoultryType
+  gender        Gender
+  age           Int          // in weeks
+  weight        Float?
+  healthStatus  HealthStatus @default(HEALTHY)
+  image         String?
+  notes         String?
+  
+  // Ownership
+  userId        Int
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Location
+  penId         Int?
+  pen           Pen?         @relation(fields: [penId], references: [id])
+  
+  // Breed information
+  breedId       Int?
+  breed         Breed?       @relation(fields: [breedId], references: [id])
+  
+  // Relations
+  careRecords   CareRecord[]
+  vaccinations  Vaccination[]
+  photos        PoultryPhoto[]
+  
+  // Timestamps
+  birthDate     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("poultry")
+}
+
+model PoultryPhoto {
+  id        Int      @id @default(autoincrement())
+  url       String
+  caption   String?
+  isMain    Boolean  @default(false)
+  
+  // Poultry relation
+  poultryId Int
+  poultry   Poultry  @relation(fields: [poultryId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime @default(now())
+
+  @@map("poultry_photos")
+}
+
+// ================================
+// CARE & HEALTH MODELS
+// ================================
+
+enum CareType {
+  FEEDING
+  MEDICATION
+  VACCINATION
+  HEALTH_CHECK
+  CLEANING
+  TEMPERATURE_CHECK
+  OTHER
+}
+
+enum VaccinationStatus {
+  SCHEDULED
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+model CareRecord {
+  id          Int       @id @default(autoincrement())
+  type        CareType
+  description String
+  notes       String?
+  cost        Float?
+  image       String?
+  
+  // Poultry and user
+  poultryId   Int
+  poultry     Poultry   @relation(fields: [poultryId], references: [id], onDelete: Cascade)
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  
+  // Timestamps
+  careDate    DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("care_records")
+}
+
+model VaccinationSchedule {
+  id          Int                @id @default(autoincrement())
+  name        String
+  description String?
+  age         Int                // Age in weeks when vaccination should be given
+  isRequired  Boolean            @default(true)
+  
+  // Breed relation
+  breedId     Int
+  breed       Breed              @relation(fields: [breedId], references: [id], onDelete: Cascade)
+  
+  // Relations
+  vaccinations Vaccination[]
+  
+  // Timestamps
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@map("vaccination_schedules")
+}
+
+model Vaccination {
+  id          Int                @id @default(autoincrement())
+  status      VaccinationStatus  @default(SCHEDULED)
+  notes       String?
+  cost        Float?
+  
+  // Poultry relation
+  poultryId   Int
+  poultry     Poultry            @relation(fields: [poultryId], references: [id], onDelete: Cascade)
+  
+  // Schedule relation
+  scheduleId  Int
+  schedule    VaccinationSchedule @relation(fields: [scheduleId], references: [id])
+  
+  // Timestamps
+  scheduledDate DateTime
+  completedDate DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("vaccinations")
+}
+
+// ================================
+// AI & KNOWLEDGE MODELS
+// ================================
+
+enum ChatType {
+  AI_ASSISTANT
+  EXPERT_CONSULTATION
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  EXPERT
+}
+
+model ChatHistory {
+  id        Int         @id @default(autoincrement())
+  type      ChatType    @default(AI_ASSISTANT)
+  message   String
+  role      MessageRole
+  image     String?
+  
+  // User relation
+  userId    Int
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Expert relation (if applicable)
+  expertId  Int?
+  expert    User?       @relation("ExpertChats", fields: [expertId], references: [id])
+  
+  // Timestamps
+  createdAt DateTime    @default(now())
+
+  @@map("chat_history")
+}
+
+model Disease {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  type        PoultryType
+  description String
+  symptoms    String[]
+  causes      String[]
+  prevention  String[]
+  treatment   String[]
+  severity    String   // Low, Medium, High
+  image       String?
+  
+  // Relations
+  alerts      DiseaseAlert[]
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("diseases")
+}
+
+model KnowledgeBase {
+  id          Int         @id @default(autoincrement())
+  title       String
+  content     String
+  category    String
+  type        PoultryType?
+  tags        String[]
+  image       String?
+  
+  // Timestamps
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@map("knowledge_base")
+}
+
+// ================================
+// EXPERT CONSULTATION MODELS
+// ================================
+
+enum ConsultationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ExpertSpecialization {
+  VETERINARY
+  NUTRITION
+  BREEDING
+  DISEASE_PREVENTION
+  GENERAL
+}
+
+model Expert {
+  id              Int                   @id @default(autoincrement())
+  specialization  ExpertSpecialization
+  experience      Int                   // years of experience
+  rating          Float                 @default(0.0)
+  bio             String?
+  certifications  String[]
+  availability    Boolean               @default(true)
+  
+  // User relation (Expert extends User)
+  userId          Int                   @unique
+  user            User                  @relation("ExpertProfile", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Relations (handled through User model)
+  
+  // Timestamps
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@map("experts")
+}
+
+model Consultation {
+  id          Int                 @id @default(autoincrement())
+  title       String
+  description String
+  images      String[]
+  status      ConsultationStatus  @default(PENDING)
+  response    String?
+  rating      Int?
+  
+  // User relations
+  farmerId    Int
+  farmer      User                @relation("FarmerConsultations", fields: [farmerId], references: [id])
+  expertId    Int
+  expert      User                @relation("ExpertConsultations", fields: [expertId], references: [id])
+  
+  // Timestamps
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  respondedAt DateTime?
+
+  @@map("consultations")
+}
+
+// ================================
+// WEATHER & ALERTS MODELS
+// ================================
+
+model WeatherData {
+  id          Int      @id @default(autoincrement())
+  temperature Float
+  humidity    Float
+  pressure    Float
+  windSpeed   Float
+  description String
+  icon        String?
+  
+  // Farm location
+  farmId      Int
+  farm        Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  recordedAt  DateTime @default(now())
+
+  @@map("weather_data")
+}
+
+model DiseaseAlert {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String
+  severity    String   // Low, Medium, High, Critical
+  location    String
+  source      String?
+  
+  // Disease relation
+  diseaseId   Int?
+  disease     Disease? @relation(fields: [diseaseId], references: [id])
+  
+  // Timestamps
+  alertDate   DateTime @default(now())
+  expiresAt   DateTime?
+
+  @@map("disease_alerts")
+}
+
+enum NotificationType {
+  CARE_REMINDER
+  VACCINATION_DUE
+  HEALTH_ALERT
+  WEATHER_WARNING
+  DISEASE_ALERT
+  EXPERT_RESPONSE
+  SYSTEM_UPDATE
+}
+
+enum NotificationStatus {
+  UNREAD
+  READ
+  DISMISSED
+}
+
+model Notification {
+  id        Int                @id @default(autoincrement())
+  title     String
+  message   String
+  type      NotificationType
+  status    NotificationStatus @default(UNREAD)
+  data      Json?              // Additional data as JSON
+  
+  // User relation
+  userId    Int
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt DateTime           @default(now())
+  readAt    DateTime?
+
+  @@map("notifications")
+}
+
+// ================================
+// REPORTS & ANALYTICS MODELS
+// ================================
+
+enum ReportType {
+  HEALTH_SUMMARY
+  COST_ANALYSIS
+  GROWTH_TRACKING
+  MORTALITY_REPORT
+  VACCINATION_REPORT
+  CUSTOM
+}
+
+model Report {
+  id          Int        @id @default(autoincrement())
+  title       String
+  type        ReportType
+  content     Json       // Report data as JSON
+  filters     Json?      // Applied filters
+  period      String     // e.g., "2024-01", "last-30-days"
+  
+  // User relation
+  userId      Int
+  user        User       @relation("ReportOwner", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("reports")
+}
+
+model Statistics {
+  id              Int      @id @default(autoincrement())
+  totalPoultry    Int      @default(0)
+  healthyCount    Int      @default(0)
+  sickCount       Int      @default(0)
+  deceasedCount   Int      @default(0)
+  totalCost       Float    @default(0.0)
+  monthlyCost     Float    @default(0.0)
+  
+  // User relation
+  userId          Int      @unique
+  user            User     @relation("UserStatistics", fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Timestamps
+  lastUpdated     DateTime @default(now())
+
+  @@map("statistics")
+}
+
+// ================================
+// ADDITIONAL RELATIONS
+// ================================
